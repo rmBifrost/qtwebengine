@@ -1,6 +1,80 @@
 # Copyright (C) 2024 The Qt Company Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
 
+# PATCHED: SBOM shims for Qt 6.8.2 SDK compatibility
+# These functions don't exist in Qt 6.8.2 but are called by Qt WebEngine 6.10.1
+
+if(NOT COMMAND qt_internal_sbom_verify_deps_for_generate_tag_value_spdx_document)
+    function(qt_internal_sbom_verify_deps_for_generate_tag_value_spdx_document)
+        cmake_parse_arguments(arg "" "OUT_VAR_DEPS_FOUND;OUT_VAR_REASON_FAILURE_MESSAGE" "" ${ARGN})
+        if(arg_OUT_VAR_DEPS_FOUND)
+            set(${arg_OUT_VAR_DEPS_FOUND} FALSE PARENT_SCOPE)
+        endif()
+        if(arg_OUT_VAR_REASON_FAILURE_MESSAGE)
+            set(${arg_OUT_VAR_REASON_FAILURE_MESSAGE} "SBOM not available in Qt 6.8.2 SDK" PARENT_SCOPE)
+        endif()
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_get_project_supplier_url)
+    function(qt_internal_sbom_get_project_supplier_url out_var)
+        set(${out_var} "" PARENT_SCOPE)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_compute_project_namespace)
+    function(qt_internal_sbom_compute_project_namespace out_var)
+        set(${out_var} "" PARENT_SCOPE)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_compute_project_file_name)
+    function(qt_internal_sbom_compute_project_file_name out_var)
+        set(${out_var} "" PARENT_SCOPE)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_add_cmake_include_step)
+    function(qt_internal_sbom_add_cmake_include_step)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_generate_tag_value_spdx_document)
+    function(qt_internal_sbom_generate_tag_value_spdx_document)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_get_external_document_ref_spdx_id)
+    function(qt_internal_sbom_get_external_document_ref_spdx_id name out_var)
+        set(${out_var} "" PARENT_SCOPE)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_add_external_reference)
+    function(qt_internal_sbom_add_external_reference)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_get_target_spdx_id)
+    function(qt_internal_sbom_get_target_spdx_id target out_var)
+        set(${out_var} "" PARENT_SCOPE)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_sbom_get_sanitized_spdx_id)
+    function(qt_internal_sbom_get_sanitized_spdx_id out_var id)
+        set(${out_var} "" PARENT_SCOPE)
+    endfunction()
+endif()
+
+if(NOT COMMAND qt_internal_extend_target)
+    function(qt_internal_extend_target)
+    endfunction()
+endif()
+
+# End of SBOM shims
+# ==================
+
 # Helper functions for SBOM generation. We defer setting up targets until the end of build setup
 # because we only want to generate e.g. one SBOM document for WebEngine. This in turn requires
 # us to only call sbom.py once for WebEngine.

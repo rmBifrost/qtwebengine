@@ -56,10 +56,13 @@ else()
     find_package(PkgConfig)
     find_package(Snappy)
     find_package(Nodejs ${QT_CONFIGURE_CHECK_nodejs_version})
-    _qt_internal_sbom_verify_deps_for_generate_tag_value_spdx_document(
-        OUT_VAR_DEPS_FOUND sbom_deps_found
-        OUT_VAR_REASON_FAILURE_MESSAGE sbom_missing_deps_message
-    )
+    # PATCHED: SBOM function not available in Qt 6.8.2 SDK
+    # _qt_internal_sbom_verify_deps_for_generate_tag_value_spdx_document(
+    #     OUT_VAR_DEPS_FOUND sbom_deps_found
+    #     OUT_VAR_REASON_FAILURE_MESSAGE sbom_missing_deps_message
+    # )
+    set(sbom_deps_found TRUE)
+    set(sbom_missing_deps_message "")
 endif()
 
 #### pkg_config checks

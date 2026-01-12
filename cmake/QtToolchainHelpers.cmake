@@ -227,13 +227,93 @@ macro(setup_toolchains)
         set(toolchain_in_file "BUILD.toolchain.gn.in")
     endif()
     get_gn_arch(gn_arch ${TEST_architecture_arch})
-    if(NOT CMAKE_CROSSCOMPILING) # delivered by hostBuild project
+    # PATCHED: Check QT_FEATURE_cross_compile in addition to CMAKE_CROSSCOMPILING
+    # This handles the case where host=aarch64 and target=aarch64 but we're
+    # using a cross-compiler SDK that targets a different sysroot/libc
+    if(NOT CMAKE_CROSSCOMPILING AND NOT QT_FEATURE_cross_compile)
+        # True native build - use Qt's template to generate host toolchain
         configure_gn_toolchain(host ${gn_arch} ${gn_arch}
             ${WEBENGINE_ROOT_SOURCE_DIR}/src/host/${toolchain_in_file}
             ${buildDir}/host_toolchain)
         configure_gn_toolchain(v8 ${gn_arch} ${gn_arch}
             ${WEBENGINE_ROOT_SOURCE_DIR}/src/host/${toolchain_in_file}
             ${buildDir}/v8_toolchain)
+    else()
+        # Cross-compiling: generate host toolchains with native compilers
+        # GN needs host tools (torque, mksnapshot, etc.) that must run on the build machine
+        # These must be compiled with native compilers, not cross-compilers
+
+        # Find native compilers on the build machine
+        find_program(NATIVE_HOST_CC NAMES gcc clang cc PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+        find_program(NATIVE_HOST_CXX NAMES g++ clang++ c++ PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+        find_program(NATIVE_HOST_AR NAMES ar PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+        find_program(NATIVE_HOST_NM NAMES nm PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+
+        if(NOT NATIVE_HOST_CC OR NOT NATIVE_HOST_CXX)
+            message(FATAL_ERROR "Cannot find native C/C++ compilers for host toolchain")
+        endif()
+
+        # Detect host architecture for GN (may differ from target)
+        execute_process(COMMAND uname -m OUTPUT_VARIABLE HOST_UNAME_ARCH OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(HOST_UNAME_ARCH STREQUAL "x86_64")
+            set(HOST_GN_ARCH "x64")
+        elseif(HOST_UNAME_ARCH STREQUAL "aarch64")
+            set(HOST_GN_ARCH "arm64")
+        elseif(HOST_UNAME_ARCH MATCHES "arm.*")
+            set(HOST_GN_ARCH "arm")
+        else()
+            set(HOST_GN_ARCH ${HOST_UNAME_ARCH})
+        endif()
+
+        message(STATUS "Cross-compiling: using native host compilers for host toolchain")
+        message(STATUS "  Host arch: ${HOST_UNAME_ARCH} -> GN arch: ${HOST_GN_ARCH}")
+        message(STATUS "  Native CC: ${NATIVE_HOST_CC}")
+        message(STATUS "  Native CXX: ${NATIVE_HOST_CXX}")
+
+        # Generate host toolchain BUILD.gn with native compilers
+        file(MAKE_DIRECTORY ${buildDir}/host_toolchain)
+        file(WRITE ${buildDir}/host_toolchain/BUILD.gn
+"import(\"//build/config/sysroot.gni\")
+import(\"//build/toolchain/gcc_toolchain.gni\")
+gcc_toolchain(\"host\") {
+  cc = \"${NATIVE_HOST_CC}\"
+  cxx = \"${NATIVE_HOST_CXX}\"
+  ld = \"${NATIVE_HOST_CXX}\"
+  ar = \"${NATIVE_HOST_AR}\"
+  nm = \"${NATIVE_HOST_NM}\"
+  extra_cppflags = \"\"
+  toolchain_args = {
+    current_os = \"linux\"
+    current_cpu = \"${HOST_GN_ARCH}\"
+    v8_current_cpu = \"${HOST_GN_ARCH}\"
+    is_clang = false
+    is_mingw = false
+    use_gold = false
+  }
+}
+")
+        # Generate v8 toolchain BUILD.gn with native compilers
+        file(MAKE_DIRECTORY ${buildDir}/v8_toolchain)
+        file(WRITE ${buildDir}/v8_toolchain/BUILD.gn
+"import(\"//build/config/sysroot.gni\")
+import(\"//build/toolchain/gcc_toolchain.gni\")
+gcc_toolchain(\"v8\") {
+  cc = \"${NATIVE_HOST_CC}\"
+  cxx = \"${NATIVE_HOST_CXX}\"
+  ld = \"${NATIVE_HOST_CXX}\"
+  ar = \"${NATIVE_HOST_AR}\"
+  nm = \"${NATIVE_HOST_NM}\"
+  extra_cppflags = \"\"
+  toolchain_args = {
+    current_os = \"linux\"
+    current_cpu = \"${HOST_GN_ARCH}\"
+    v8_current_cpu = \"${HOST_GN_ARCH}\"
+    is_clang = false
+    is_mingw = false
+    use_gold = false
+  }
+}
+")
     endif()
     configure_gn_toolchain(target ${gn_arch} ${gn_arch}
         ${WEBENGINE_ROOT_SOURCE_DIR}/src/host/${toolchain_in_file}
@@ -317,6 +397,14 @@ macro(append_build_type_setup)
     endif()
 
     extend_gn_list(gnArgArg ARGS use_jumbo_build CONDITION QT_FEATURE_webengine_jumbo_build)
+    # PATCHED: Disable ANGLE Vulkan backend to avoid vulkan-loader build (requires libatomic)
+    # Qt's -no-feature-webengine-vulkan only disables Qt code, not Chromium's ANGLE Vulkan.
+    # - angle_enable_vulkan: controls ANGLE's vulkan backend
+    # - angle_shared_libvulkan: controls whether vulkan-loader is built (data_dep in ui/gl)
+    # Keep angle_enable_gl=true so ANGLE has a working GL backend for compilation.
+    # At runtime, Qt WebEngine's GLOzoneEGLQt can use native EGL/GLES2 via Mesa/Etnaviv.
+    extend_gn_list(gnArgArg ARGS angle_enable_vulkan CONDITION QT_FEATURE_webengine_vulkan)
+    extend_gn_list(gnArgArg ARGS angle_shared_libvulkan CONDITION QT_FEATURE_webengine_vulkan)
     if(QT_FEATURE_webengine_jumbo_build)
         list(APPEND gnArgArg jumbo_file_merge_limit=${QT_FEATURE_webengine_jumbo_file_merge_limit})
         if(QT_FEATURE_webengine_jumbo_file_merge_limit LESS_EQUAL 8)
@@ -582,7 +670,12 @@ macro(append_toolchain_setup)
         else()
             list(APPEND gnArgArg host_cpu="${cpu}")
         endif()
-        if(CMAKE_SYSROOT)
+        # PATCHED: Allow QTWEBENGINE_SYSROOT env var to override CMAKE_SYSROOT
+        # This is needed because Yocto toolchain files set CMAKE_SYSROOT before
+        # -D options are processed, and the sysroot overlay path is different.
+        if(DEFINED ENV{QTWEBENGINE_SYSROOT})
+            list(APPEND gnArgArg target_sysroot="$ENV{QTWEBENGINE_SYSROOT}")
+        elseif(CMAKE_SYSROOT)
             list(APPEND gnArgArg target_sysroot="${CMAKE_SYSROOT}")
         endif()
     elseif(MACOS)

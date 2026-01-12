@@ -1224,7 +1224,7 @@ bool WebEngineContext::isGbmSupported()
             return false;
         }
 
-#if !BUILDFLAG(IS_OZONE_X11)
+#if !BUILDFLAG(IS_OZONE_X11) && QT_CONFIG(opengl)  // PATCHED: add QT_CONFIG(opengl) guard
         if (OzoneUtilQt::usingGLX()) {
             qWarning("GLX: Disable GBM because Ozone X11 is not available. "
                      "Possibly caused by missing libraries for qpa-xcb support.");

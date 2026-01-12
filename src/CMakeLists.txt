@@ -143,6 +143,95 @@ if(CMAKE_CROSSCOMPILING AND NOT IOS AND NOT MACOS AND NOT WIN32)
     if(QT_FEATURE_qtpdf_build)
         add_dependencies(run_pdf_GnReady hostBuild)
     endif()
+
+    # PATCHED: Fix hostBuild-generated BUILD.gn files to use native compilers
+    # The hostBuild ExternalProject generates these files with cross-compilers,
+    # but host tools need to be compiled with native compilers to run on the build machine.
+
+    # Detect host architecture for GN
+    execute_process(COMMAND uname -m OUTPUT_VARIABLE HOST_UNAME_ARCH OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(HOST_UNAME_ARCH STREQUAL "x86_64")
+        set(FIX_HOST_GN_ARCH "x64")
+    elseif(HOST_UNAME_ARCH STREQUAL "aarch64")
+        set(FIX_HOST_GN_ARCH "arm64")
+    else()
+        set(FIX_HOST_GN_ARCH "${HOST_UNAME_ARCH}")
+    endif()
+
+    # Find native compilers
+    find_program(FIX_NATIVE_CC NAMES gcc clang cc PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+    find_program(FIX_NATIVE_CXX NAMES g++ clang++ c++ PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+    find_program(FIX_NATIVE_AR NAMES ar PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+    find_program(FIX_NATIVE_NM NAMES nm PATHS /usr/bin /usr/local/bin NO_CMAKE_FIND_ROOT_PATH)
+
+    message(STATUS "Will fix host toolchain after hostBuild: CC=${FIX_NATIVE_CC} CXX=${FIX_NATIVE_CXX} ARCH=${FIX_HOST_GN_ARCH}")
+
+    # Create a script that fixes the BUILD.gn files
+    set(FIX_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/fix_host_toolchain.cmake")
+    file(WRITE "${FIX_SCRIPT}" "
+# Fix host_toolchain BUILD.gn for core
+set(HOST_TOOLCHAIN_FILE \"${PROJECT_BINARY_DIR}/src/core/host_toolchain/BUILD.gn\")
+if(EXISTS \"\${HOST_TOOLCHAIN_FILE}\")
+    file(WRITE \"\${HOST_TOOLCHAIN_FILE}\"
+\"import(\\\"//build/config/sysroot.gni\\\")
+import(\\\"//build/toolchain/gcc_toolchain.gni\\\")
+gcc_toolchain(\\\"host\\\") {
+  cc = \\\"${FIX_NATIVE_CC}\\\"
+  cxx = \\\"${FIX_NATIVE_CXX}\\\"
+  ld = \\\"${FIX_NATIVE_CXX}\\\"
+  ar = \\\"${FIX_NATIVE_AR}\\\"
+  nm = \\\"${FIX_NATIVE_NM}\\\"
+  extra_cppflags = \\\"\\\"
+  toolchain_args = {
+    current_os = \\\"linux\\\"
+    current_cpu = \\\"${FIX_HOST_GN_ARCH}\\\"
+    v8_current_cpu = \\\"${FIX_HOST_GN_ARCH}\\\"
+    is_clang = false
+    is_mingw = false
+    use_gold = false
+  }
+}
+\")
+    message(STATUS \"Fixed host_toolchain BUILD.gn with native compilers\")
+endif()
+
+# Fix v8_toolchain BUILD.gn for core
+set(V8_TOOLCHAIN_FILE \"${PROJECT_BINARY_DIR}/src/core/v8_toolchain/BUILD.gn\")
+if(EXISTS \"\${V8_TOOLCHAIN_FILE}\")
+    file(WRITE \"\${V8_TOOLCHAIN_FILE}\"
+\"import(\\\"//build/config/sysroot.gni\\\")
+import(\\\"//build/toolchain/gcc_toolchain.gni\\\")
+gcc_toolchain(\\\"v8\\\") {
+  cc = \\\"${FIX_NATIVE_CC}\\\"
+  cxx = \\\"${FIX_NATIVE_CXX}\\\"
+  ld = \\\"${FIX_NATIVE_CXX}\\\"
+  ar = \\\"${FIX_NATIVE_AR}\\\"
+  nm = \\\"${FIX_NATIVE_NM}\\\"
+  extra_cppflags = \\\"\\\"
+  toolchain_args = {
+    current_os = \\\"linux\\\"
+    current_cpu = \\\"${FIX_HOST_GN_ARCH}\\\"
+    v8_current_cpu = \\\"${FIX_HOST_GN_ARCH}\\\"
+    is_clang = false
+    is_mingw = false
+    use_gold = false
+  }
+}
+\")
+    message(STATUS \"Fixed v8_toolchain BUILD.gn with native compilers\")
+endif()
+")
+
+    # Add custom target that depends on hostBuild and runs before GN
+    add_custom_target(fix_host_toolchain
+        COMMAND ${CMAKE_COMMAND} -P "${FIX_SCRIPT}"
+        COMMENT "Fixing host toolchain BUILD.gn files with native compilers"
+    )
+    add_dependencies(fix_host_toolchain hostBuild)
+    if(QT_FEATURE_qtwebengine_build)
+        add_dependencies(run_core_GnReady fix_host_toolchain)
+    endif()
+    # End PATCHED block
 endif()
 
 # install gn for cross build

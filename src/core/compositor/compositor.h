@@ -8,6 +8,7 @@
 #include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 
 QT_BEGIN_NAMESPACE
+class QImage;
 class QQuickWindow;
 class QSize;
 class QSGTexture;
@@ -127,6 +128,9 @@ public:
 
     // QSGTexture of the frame.
     virtual QSGTexture *texture(QQuickWindow *win, uint32_t textureOptions);
+
+    // QImage of the frame (for CPU access, e.g., QPaintedItem rendering).
+    virtual QImage image() const;
 
     // Is the texture produced upside down?
     virtual bool textureIsFlipped();

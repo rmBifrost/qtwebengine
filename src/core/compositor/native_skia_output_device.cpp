@@ -106,6 +106,10 @@ void NativeSkiaOutputDevice::Present(const std::optional<gfx::Rect> &update_rect
 
     StartSwapBuffers(std::move(feedback));
     m_frame = std::move(frame);
+
+    // Do GPU->CPU readback while we're on GPU thread with context
+    m_backBuffer->readPixelsToCPU();
+
     {
         QMutexLocker locker(&m_mutex);
         m_backBuffer->createFence();
@@ -209,6 +213,17 @@ bool NativeSkiaOutputDevice::requiresAlphaChannel()
 float NativeSkiaOutputDevice::devicePixelRatio()
 {
     return m_frontBuffer ? m_frontBuffer->shape().devicePixelRatio : 1;
+}
+
+QImage NativeSkiaOutputDevice::image() const
+{
+    QMutexLocker locker(&m_mutex);
+
+    if (!m_frontBuffer || !m_readyWithTexture)
+        return QImage();
+
+    // Return the CPU image that was pre-readback on GPU thread
+    return m_frontBuffer->cpuImage();
 }
 
 void NativeSkiaOutputDevice::SwapBuffersFinished()
@@ -443,6 +458,67 @@ sk_sp<SkImage> NativeSkiaOutputDevice::Buffer::skImage()
     QMutexLocker locker(&m_skImageMutex);
     return m_cachedSkImage;
 }
+
+void NativeSkiaOutputDevice::Buffer::readPixelsToCPU()
+{
+    // Must be called on GPU thread with valid context
+    // Read directly from the Skia surface while we have access
+
+    if (!m_skiaRepresentation)
+        return;
+
+    // Get the backing image info
+    SkImageInfo info = m_shape.imageInfo;
+
+    // Determine Qt format based on Skia color type
+    QImage::Format format;
+    switch (info.colorType()) {
+    case kBGRA_8888_SkColorType:
+        format = QImage::Format_ARGB32_Premultiplied;
+        break;
+    case kRGBA_8888_SkColorType:
+        format = QImage::Format_RGBA8888_Premultiplied;
+        break;
+    default:
+        format = QImage::Format_ARGB32_Premultiplied;
+    }
+
+    // Allocate/reuse QImage if size or format changed
+    if (m_cpuImage.size() != QSize(info.width(), info.height())
+        || m_cpuImage.format() != format) {
+        m_cpuImage = QImage(info.width(), info.height(), format);
+    }
+
+    // Begin scoped read access to get SkImage
+    std::vector<GrBackendSemaphore> beginSemaphores;
+    auto scopedRead = m_skiaRepresentation->BeginScopedReadAccess(&beginSemaphores, nullptr);
+    if (!scopedRead) {
+        qWarning("NativeSkiaOutputDevice: Failed to begin read access for CPU readback");
+        return;
+    }
+
+    auto skImage = scopedRead->CreateSkImage(m_parent->m_contextState.get());
+    if (!skImage) {
+        qWarning("NativeSkiaOutputDevice: Failed to create SkImage for CPU readback");
+        return;
+    }
+
+    // Read pixels from GPU to CPU
+    if (m_cpuImage.bits()) {
+        SkPixmap dstPixmap;
+        SkImageInfo dstInfo = SkImageInfo::Make(
+            info.width(), info.height(),
+            info.colorType(), info.alphaType());
+        dstPixmap.reset(dstInfo, m_cpuImage.bits(), m_cpuImage.bytesPerLine());
+
+        if (!skImage->readPixels(dstPixmap, 0, 0)) {
+            qWarning("NativeSkiaOutputDevice: Failed to read pixels from GPU");
+            m_cpuImage = QImage();
+        }
+    }
+    // scopedRead automatically released here
+}
+
 #if BUILDFLAG(IS_OZONE)
 scoped_refptr<gfx::NativePixmap> NativeSkiaOutputDevice::Buffer::nativePixmap()
 {

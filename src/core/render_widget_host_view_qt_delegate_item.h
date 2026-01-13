@@ -8,7 +8,7 @@
 #include "compositor/compositor.h"
 #include "render_widget_host_view_qt_delegate.h"
 
-#include <QtQuick/QQuickItem>
+#include <QtQuick/QQuickPaintedItem>
 
 QT_BEGIN_NAMESPACE
 class QQuickWebEngineViewPrivate;
@@ -47,7 +47,7 @@ public:
 // RWHVQD instance, and the mouse interaction area covers the surface of the whole parent
 // QWebEngineView, and not only the smaller surface that an HTML select popup would occupy).
 class Q_WEBENGINECORE_EXPORT RenderWidgetHostViewQtDelegateItem
-        : public QQuickItem
+        : public QQuickPaintedItem
         , public RenderWidgetHostViewQtDelegate
         , public Compositor::Observer
 {
@@ -97,7 +97,7 @@ protected:
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void itemChange(ItemChange change, const ItemChangeData &value) override;
     void releaseResources() override;
-    QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
+    void paint(QPainter *painter) override;
 
     void adapterClientChanged(WebContentsAdapterClient *client) override;
     void updateAdapterClientIfNeeded(WebContentsAdapterClient *client) override;

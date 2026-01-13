@@ -31,6 +31,7 @@ public:
     // Overridden from Compositor.
     void swapFrame() override;
     QSGTexture *texture(QQuickWindow *win, uint32_t) override;
+    QImage image() const override;
     bool textureIsFlipped() override;
     float devicePixelRatio() override;
     QSize size() override;
@@ -119,6 +120,11 @@ void DisplaySoftwareOutputSurface::Device::swapFrame()
 QSGTexture *DisplaySoftwareOutputSurface::Device::texture(QQuickWindow *win, uint32_t)
 {
     return win->createTextureFromImage(m_image);
+}
+
+QImage DisplaySoftwareOutputSurface::Device::image() const
+{
+    return m_image;
 }
 
 bool DisplaySoftwareOutputSurface::Device::textureIsFlipped()

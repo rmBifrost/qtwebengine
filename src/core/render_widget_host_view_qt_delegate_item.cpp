@@ -10,8 +10,8 @@
 #include <QtCore/qthread.h>
 #include <QtGui/qevent.h>
 #include <QtGui/qguiapplication.h>
+#include <QtGui/qpainter.h>
 #include <QtGui/qwindow.h>
-#include <QtQuick/qsgimagenode.h>
 #include <rhi/qrhi.h>
 
 #if QT_CONFIG(accessibility)
@@ -26,7 +26,8 @@ RenderWidgetHostViewQtDelegateItem::RenderWidgetHostViewQtDelegateItem(RenderWid
     : m_client(client)
     , m_isPopup(isPopup)
 {
-    setFlag(ItemHasContents);
+    // Use Image render target for software QPA compatibility (e.g., reMarkable)
+    setRenderTarget(QQuickPaintedItem::Image);
     setAcceptedMouseButtons(Qt::AllButtons);
     setKeepMouseGrab(true);
     setAcceptHoverEvents(true);
@@ -423,74 +424,57 @@ void RenderWidgetHostViewQtDelegateItem::releaseResources()
     }
 }
 
-QSGNode *RenderWidgetHostViewQtDelegateItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+void RenderWidgetHostViewQtDelegateItem::paint(QPainter *painter)
 {
     auto comp = compositor();
     if (!comp)
-        return oldNode;
+        return;
 
-    if (comp->type() == Compositor::Type::Native
-        && QGuiApplication::platformName() == "offscreen"_L1) {
-        comp->swapFrame();
-        return oldNode;
-    }
-
-    QQuickWindow *win = QQuickItem::window();
-
-    QSGImageNode *node = nullptr;
-    // Delete old node before swapFrame to decrement refcount of
-    // QImage in software mode.
-    if (comp->type() == Compositor::Type::Software)
-        delete oldNode;
-    else
-        node = static_cast<QSGImageNode*>(oldNode);
-
-    if (!node) {
-        node = win->createImageNode();
-        node->setOwnsTexture(true);
-    }
-
+    // Swap frame to get latest content
     comp->swapFrame();
 
-    QSize texSize = comp->size();
-    QSizeF texSizeInDips = QSizeF(texSize) / comp->devicePixelRatio();
-    node->setRect(QRectF(QPointF(0, 0), texSizeInDips));
+    // Wait for GPU operations to complete (for Native compositor)
+    if (comp->type() == Compositor::Type::Native)
+        comp->waitForTexture();
 
-    QQuickWindow::CreateTextureOptions texOpts;
-    if (comp->requiresAlphaChannel() || m_clearColor.alpha() < 255)
-        texOpts.setFlag(QQuickWindow::TextureHasAlphaChannel);
-    else
-        texOpts.setFlag(QQuickWindow::TextureIsOpaque);
-    QSGTexture *texture = comp->texture(win, texOpts);
-    if (texture) {
-        node->setTexture(texture);
-        if (comp->textureIsFlipped())
-            node->setTextureCoordinatesTransform(QSGImageNode::MirrorVertically);
+    // Get the rendered image from compositor (works for both Native and Software)
+    QImage image = comp->image();
+    if (image.isNull())
+        return;
+
+    // Fill background if we have a clear color with alpha
+    if (m_clearColor.isValid() && m_clearColor.alpha() < 255)
+        painter->fillRect(boundingRect(), m_clearColor);
+
+    // Calculate target rect accounting for device pixel ratio
+    const qreal dpr = comp->devicePixelRatio();
+    const QSizeF targetSize = QSizeF(image.size()) / dpr;
+    const QRectF targetRect(QPointF(0, 0), targetSize);
+
+    // Draw the web content (flip vertically if needed)
+    if (comp->textureIsFlipped()) {
+        painter->save();
+        painter->translate(0, targetSize.height());
+        painter->scale(1, -1);
+        painter->drawImage(QRectF(QPointF(0, 0), targetSize), image);
+        painter->restore();
     } else {
-        if (!oldNode || comp->type() == Compositor::Type::Software) {
-            qDebug("Compositor returned null texture");
-            delete node;
-            return nullptr;
-        }
+        painter->drawImage(targetRect, image);
     }
 
-    return node;
+    // Release texture resources (for Native compositor)
+    if (comp->type() == Compositor::Type::Native)
+        comp->releaseTexture();
 }
 
 void RenderWidgetHostViewQtDelegateItem::onBeforeRendering()
 {
-    auto comp = compositor();
-    if (!comp || comp->type() == Compositor::Type::Software)
-        return;
-    comp->waitForTexture();
+    // Texture wait/release is now handled in paint()
 }
 
 void RenderWidgetHostViewQtDelegateItem::onAfterFrameEnd()
 {
-    auto comp = compositor();
-    if (!comp || comp->type() != Compositor::Type::Native)
-        return;
-    comp->releaseTexture();
+    // Texture wait/release is now handled in paint()
 }
 
 void RenderWidgetHostViewQtDelegateItem::onWindowPosChanged()

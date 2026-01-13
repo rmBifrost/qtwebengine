@@ -9,6 +9,7 @@
 
 #include <QGuiApplication>
 #include <QHash>
+#include <QImage>
 #include <QReadWriteLock>
 #include <QQuickWindow>
 
@@ -154,6 +155,11 @@ void Compositor::releaseTexture()
 QSGTexture *Compositor::texture(QQuickWindow *, uint32_t textureOptions)
 {
     Q_UNREACHABLE_RETURN(nullptr);
+}
+
+QImage Compositor::image() const
+{
+    return QImage();
 }
 
 bool Compositor::textureIsFlipped()

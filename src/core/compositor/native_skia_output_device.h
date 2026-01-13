@@ -13,6 +13,7 @@
 #include "gpu/command_buffer/service/shared_image/shared_image_representation.h"
 #include "gpu/config/gpu_preferences.h"
 
+#include <QImage>
 #include <QMutex>
 
 #if defined(Q_OS_WIN)
@@ -80,6 +81,7 @@ public:
     QSize size() override;
     bool requiresAlphaChannel() override;
     float devicePixelRatio() override;
+    QImage image() const override;
 
 protected:
     struct Shape
@@ -116,6 +118,8 @@ protected:
         void consumeFence();
 
         sk_sp<SkImage> skImage();
+        void readPixelsToCPU();  // GPU->CPU readback on GPU thread
+        QImage cpuImage() const { return m_cpuImage; }
 #if BUILDFLAG(IS_OZONE)
         scoped_refptr<gfx::NativePixmap> nativePixmap();
 #elif defined(Q_OS_WIN)
@@ -149,6 +153,7 @@ protected:
 
         mutable QMutex m_skImageMutex;
         sk_sp<SkImage> m_cachedSkImage;
+        QImage m_cpuImage;  // CPU copy for Qt access
     };
 
 protected:

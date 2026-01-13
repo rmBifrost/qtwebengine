@@ -12,6 +12,7 @@
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qpainter.h>
 #include <QtGui/qwindow.h>
+#include <QtQuick/QQuickWindow>
 #include <rhi/qrhi.h>
 
 #if QT_CONFIG(accessibility)

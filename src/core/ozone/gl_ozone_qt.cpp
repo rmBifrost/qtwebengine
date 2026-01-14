@@ -31,6 +31,8 @@
 #include <dlfcn.h>
 #endif
 
+#include <cstring>
+
 using namespace Qt::StringLiterals;
 
 extern "C" {
@@ -99,9 +101,8 @@ gl::EGLDisplayPlatform GLOzoneQt::GetNativeDisplay()
         return gl::EGLDisplayPlatform(nativeDisplay);
 #endif
 
-    if (gl::g_driver_egl.client_ext.b_EGL_MESA_platform_surfaceless)
-        return gl::EGLDisplayPlatform(EGL_DEFAULT_DISPLAY, EGL_PLATFORM_SURFACELESS_MESA);
-
+    // For embedded/headless systems without X11, use EGL_DEFAULT_DISPLAY.
+    // Mesa will auto-detect the appropriate platform (e.g., surfaceless, DRM).
     return gl::EGLDisplayPlatform(EGL_DEFAULT_DISPLAY);
 }
 
@@ -182,7 +183,8 @@ bool GLOzoneEGLQt::LoadGLES2Bindings(const gl::GLImplementationParts & /*impleme
 #if QT_CONFIG(dlopen)
     if (getProcAddressPtr == nullptr) {
         const char *eglPath = "libEGL.so.1";
-        m_nativeEGLHandle = dlopen(eglPath, RTLD_NOW);
+        // Use RTLD_GLOBAL so Mesa's internal libraries (libdrm, libgbm) can access EGL symbols
+        m_nativeEGLHandle = dlopen(eglPath, RTLD_NOW | RTLD_GLOBAL);
         if (!m_nativeEGLHandle) {
             qWarning("Failed to load EGL library %s: %s", eglPath, dlerror());
             return false;

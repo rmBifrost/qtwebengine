@@ -36,7 +36,7 @@ namespace QtWebEngineCore {
 
 SurfaceFactoryQt::SurfaceFactoryQt()
 {
-#if QT_CONFIG(opengl)
+#if 1  // Enable EGL via dlopen fallback even without Qt OpenGL (QT_CONFIG(opengl))
     m_impls.push_back({ gl::GLImplementationParts(gl::kGLImplementationEGLANGLE),
                         std::make_unique<ui::GLOzoneANGLEQt>() });
     m_impls.push_back({ gl::GLImplementationParts(gl::kGLImplementationEGLGLES2),

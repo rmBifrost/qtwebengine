@@ -12,7 +12,9 @@
 #include <qtgui-config.h>
 #include <QtQuick/qquickwindow.h>
 
-#if QT_CONFIG(opengl)
+// Enable OpenGL support even without QT_CONFIG(opengl) for embedded systems
+// that use EGL/GLES2 via dlopen (e.g., etnaviv with Mesa)
+#if 1  // was: QT_CONFIG(opengl)
 #include "native_skia_output_device_opengl.h"
 #endif
 
@@ -39,14 +41,14 @@ viz::SkiaOutputSurfaceImplOnGpu::CreateOutputDevice()
 {
     static const auto graphicsApi = QQuickWindow::graphicsApi();
 
-#if QT_CONFIG(opengl)
+#if 1  // was: QT_CONFIG(opengl) - enabled for embedded EGL/GLES2 support
     if (graphicsApi == QSGRendererInterface::OpenGL) {
         return std::make_unique<QtWebEngineCore::NativeSkiaOutputDeviceOpenGL>(
                 context_state_, renderer_settings_.requires_alpha_channel,
                 shared_gpu_deps_->memory_tracker(), dependency_.get(), shared_image_factory_.get(),
                 shared_image_representation_factory_.get(), GetDidSwapBuffersCompleteCallback());
     }
-#endif // QT_CONFIG(opengl)
+#endif
 
 #if BUILDFLAG(ENABLE_VULKAN)
     if (graphicsApi == QSGRendererInterface::Vulkan) {

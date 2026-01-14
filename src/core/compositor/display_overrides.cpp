@@ -12,9 +12,7 @@
 #include <qtgui-config.h>
 #include <QtQuick/qquickwindow.h>
 
-// Enable OpenGL support even without QT_CONFIG(opengl) for embedded systems
-// that use EGL/GLES2 via dlopen (e.g., etnaviv with Mesa)
-#if 1  // was: QT_CONFIG(opengl)
+#if QT_CONFIG(opengl)
 #include "native_skia_output_device_opengl.h"
 #endif
 
@@ -41,7 +39,7 @@ viz::SkiaOutputSurfaceImplOnGpu::CreateOutputDevice()
 {
     static const auto graphicsApi = QQuickWindow::graphicsApi();
 
-#if 1  // was: QT_CONFIG(opengl) - enabled for embedded EGL/GLES2 support
+#if QT_CONFIG(opengl)
     if (graphicsApi == QSGRendererInterface::OpenGL) {
         return std::make_unique<QtWebEngineCore::NativeSkiaOutputDeviceOpenGL>(
                 context_state_, renderer_settings_.requires_alpha_channel,
@@ -87,6 +85,10 @@ viz::SkiaOutputSurfaceImplOnGpu::CreateOutputDevice()
     }
 #endif
 
-    qFatal() << "Unsupported Graphics API:" << graphicsApi;
-    return nullptr;
+    // Fallback: Use base NativeSkiaOutputDevice for software-only QPA
+    // (e.g., e-paper displays using QQuickPaintedItem with GPU->CPU readback)
+    return std::make_unique<QtWebEngineCore::NativeSkiaOutputDevice>(
+            context_state_, renderer_settings_.requires_alpha_channel,
+            shared_gpu_deps_->memory_tracker(), dependency_.get(), shared_image_factory_.get(),
+            shared_image_representation_factory_.get(), GetDidSwapBuffersCompleteCallback());
 }
